@@ -1,0 +1,38 @@
+# =============================================================================
+# .dockerignore — Files excluded from Docker build context
+# =============================================================================
+# These files are not needed inside the Docker image. Excluding them
+# speeds up builds and reduces image size.
+# =============================================================================
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Environment files (secrets should be passed via env_file or env vars)
+.env
+.env.*
+!.env.example
+
+# Version control
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation (not needed at runtime)
+*.md
+
+# Tests (not needed in production image)
+tests/
+.pytest_cache/
+.coverage

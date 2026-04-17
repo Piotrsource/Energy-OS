@@ -1,0 +1,12 @@
+# =============================================================================
+# scripts/Dockerfile.db — Custom TimescaleDB Image
+# =============================================================================
+# PURPOSE: Copy the init_db.sql script INTO the image so we don't need a
+# host volume mount. This avoids issues with special characters in the
+# host path (Docker volume mounts break on paths containing colons).
+# =============================================================================
+
+FROM timescale/timescaledb:latest-pg16
+
+# Copy init script into the entrypoint directory — runs once on first DB creation
+COPY init_db.sql /docker-entrypoint-initdb.d/01_init.sql

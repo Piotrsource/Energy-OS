@@ -1,0 +1,183 @@
+# =============================================================================
+# docker-compose.yml
+# =============================================================================
+# Local development stack for the AI Energy Optimization Platform.
+#
+# PURPOSE: Define and orchestrate all the containers needed to run the platform
+# locally in a single command. This file replaces the need to manually install
+# PostgreSQL, TimescaleDB, and Python dependencies on your machine — everything
+# runs in isolated Docker containers that mirror the production environment.
+#
+# Services:
+#   db       — PostgreSQL 16 with TimescaleDB extension for time-series sensor data
+#   api      — FastAPI application server with hot-reloading for development
+#   frontend — React dashboard served by nginx, proxies /api to the backend
+#
+# Usage:
+#   docker compose up              → start all services
+#   docker compose up db api       → start only backend (no frontend)
+#   docker compose down            → stop all services
+#   docker compose down -v         → stop all services and delete database data
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # DATABASE SERVICE
+  # ---------------------------------------------------------------------------
+  # PURPOSE: Provide the persistent time-series database that stores all sensor
+  # readings, energy consumption data, and optimization results. TimescaleDB
+  # extends PostgreSQL with hypertables optimized for high-volume time-series
+  # inserts and fast range queries — critical for analyzing energy patterns
+  # across thousands of hotel rooms over weeks/months.
+  # ---------------------------------------------------------------------------
+  db:
+    # PURPOSE: Build a custom image that copies init_db.sql into the container.
+    # We use a Dockerfile instead of a host volume mount because the project
+    # directory name contains a colon, which conflicts with Docker's mount syntax.
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile.db
+
+    # PURPOSE: Give the container a fixed, human-readable name so logs and
+    # `docker ps` output are easy to identify.
+    container_name: energy_platform_db
+
+    # PURPOSE: Seed the database credentials on first startup. PostgreSQL uses
+    # these variables to create the initial database and superuser automatically.
+    environment:
+      POSTGRES_DB: energy_platform          # Database name created on first run
+      POSTGRES_USER: energy_user            # Superuser for the database
+      POSTGRES_PASSWORD: energy_pass_dev    # Dev-only password (change in prod)
+
+    # PURPOSE: Expose the database port to the host so desktop tools (pgAdmin,
+    # DBeaver, psql) can connect for debugging. Port 5433 avoids collisions if
+    # you already have a local PostgreSQL running on the default 5432.
+    ports:
+      - "5433:5432"
+
+    # PURPOSE: Persistent named volume for database data across restarts.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+    # PURPOSE: Force PostgreSQL to load the TimescaleDB shared library at boot.
+    # Without this flag the CREATE EXTENSION timescaledb command would fail.
+    command: postgres -c shared_preload_libraries=timescaledb
+
+    # PURPOSE: Let other services (api) know when the database is actually ready
+    # to accept connections — not just when the container is running. The API
+    # service uses `condition: service_healthy` to wait for this check to pass.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U energy_user -d energy_platform"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # REDIS SERVICE (Phase 2)
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: energy_platform_redis
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # API SERVICE
+  # ---------------------------------------------------------------------------
+  # PURPOSE: Run the FastAPI backend that exposes REST endpoints for ingesting
+  # sensor data, triggering ML-based energy predictions, and serving
+  # optimization recommendations to the frontend / hotel management systems.
+  # In development mode the source code is live-mounted so every file save
+  # triggers an automatic server reload — no container rebuild needed.
+  # ---------------------------------------------------------------------------
+  api:
+    # PURPOSE: Build a Docker image from the backend/ directory using its
+    # Dockerfile, which installs Python dependencies and sets up the runtime.
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+
+    # PURPOSE: Fixed container name for easy identification in logs / tooling.
+    container_name: energy_platform_api
+
+    # PURPOSE: Expose the API on port 8000 so you can reach Swagger docs at
+    # http://localhost:8000/docs and call endpoints from the frontend or curl.
+    ports:
+      - "8000:8000"
+
+    # PURPOSE: Load sensitive config (database URL, API keys, ML model paths)
+    # from a single .env file instead of hard-coding them in this compose file.
+    env_file:
+      - .env
+
+    # NOTE: Host volume mount for hot-reload is disabled because the project
+    # directory name contains a colon, which conflicts with Docker's volume
+    # mount syntax. Code changes require a container rebuild:
+    #   docker compose build api && docker compose up api
+    # To enable hot-reload, rename the project directory to remove the colon,
+    # then uncomment the volume mount below.
+    # volumes:
+    #   - ./backend:/app
+
+    # PURPOSE: Prevent the API from starting before the database is healthy.
+    # Without this, the first DB query would fail with a connection error.
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    # PURPOSE: Start the Uvicorn ASGI server with hot-reload enabled, watching
+    # the /app/app directory for Python file changes.
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+      --reload-dir /app/app
+
+  # ---------------------------------------------------------------------------
+  # FRONTEND SERVICE
+  # ---------------------------------------------------------------------------
+  # PURPOSE: Serve the React dashboard and proxy API requests to the backend.
+  # In production, nginx serves the pre-built static files and reverse-proxies
+  # /api/* requests to the FastAPI container, avoiding CORS issues entirely.
+  # Access the UI at http://localhost:3000
+  # ---------------------------------------------------------------------------
+  frontend:
+    # PURPOSE: Build the React app and package it into an nginx image.
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+
+    # PURPOSE: Fixed container name for easy identification.
+    container_name: energy_platform_frontend
+
+    # PURPOSE: Expose the frontend on port 3000 so you can access the
+    # dashboard at http://localhost:3000
+    ports:
+      - "3000:80"
+
+    # PURPOSE: Wait for the API to be running before starting nginx,
+    # since nginx will fail if the upstream (api:8000) is unreachable.
+    depends_on:
+      - api
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+# PURPOSE: Declare a named Docker volume for PostgreSQL data. Named volumes
+# persist across `docker compose down` (data survives) but are removed with
+# `docker compose down -v` (clean slate). This lets you restart containers
+# without losing your development database, while still being able to nuke
+# everything when you need a fresh start.
+# =============================================================================
+volumes:
+  pgdata:
+  redisdata:
