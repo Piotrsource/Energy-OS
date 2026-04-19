@@ -28,8 +28,6 @@ jobs:
       - name: Run tests
         working-directory: backend
         env:
-          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
-          DATABASE_URL_SYNC: "sqlite:///:memory:"
           JWT_SECRET_KEY: "test-secret-key-at-least-32-chars-long"
         run: pytest -v
 

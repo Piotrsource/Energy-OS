@@ -33,11 +33,11 @@ from app.config import settings
 # - max_overflow=20: Allows up to 20 additional connections during traffic spikes.
 #   These overflow connections are closed after use, returning the pool to 10.
 # =============================================================================
+_is_sqlite = settings.database_url.startswith("sqlite")
 engine = create_async_engine(
     settings.database_url,
     echo=settings.debug,
-    pool_size=10,
-    max_overflow=20,
+    **({} if _is_sqlite else {"pool_size": 10, "max_overflow": 20}),
 )
 
 # =============================================================================
