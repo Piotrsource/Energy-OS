@@ -89,6 +89,22 @@ class Settings(BaseSettings):
     sendgrid_api_key: str = ""
     from_email: str = "alerts@energyplatform.io"
 
+    # -------------------------------------------------------------------------
+    # WEATHER API (Phase 3 — AI Forecasting)
+    # -------------------------------------------------------------------------
+    openweathermap_api_key: str = ""
+
+    # -------------------------------------------------------------------------
+    # STRIPE (Phase 9 — P2P Energy Trading)
+    # -------------------------------------------------------------------------
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+
+    # -------------------------------------------------------------------------
+    # GEOCODING (Phase 9 — Neighbor Proximity Matching)
+    # -------------------------------------------------------------------------
+    geocoding_api_key: str = ""
+
     @property
     def cors_origins(self) -> list[str]:
         if self.allowed_origins.strip() == "*":
